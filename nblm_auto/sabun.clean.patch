@@ -1,0 +1,108 @@
+--- a/nblm_auto/main_dual.py
++++ b/nblm_auto/main_dual.py
+@@
+-import argparse
++import argparse
++import json
++from pathlib import Path
++import sys
+@@
+-    ap = argparse.ArgumentParser()
+-    ap.add_argument("--input", required=True, help="input audio file")
++    ap = argparse.ArgumentParser()
++    # --input は transcribe/tts では必須、render では任意にする
++    ap.add_argument("--input", required=False, help="input audio file")
+     ap.add_argument("--config", default="config.yml")
+     ap.add_argument("--charA", default="assets/characters/charA")
+     ap.add_argument("--charB", default="assets/characters/charB")
+     ap.add_argument("--out", default="output.mp4")
+-    ap.add_argument("--stage", default="all", choices=["all","transcribe","tts","render"])
+-    ap.add_argument("--transcript", help="path to transcript (srt or vtt)")
++    # compose を render のエイリアスとして受け付ける
++    ap.add_argument("--stage", default="all", choices=["all","transcribe","tts","render","compose"])
++    ap.add_argument("--transcript", help="path to transcript (srt or vtt)")
++    # ▼ 外部アセットを明示指定できるオプションを追加
++    ap.add_argument("--audio", help="external mixed audio (e.g., data/tts/mix.wav)")
++    ap.add_argument("--sub", help="external subtitles in SRT/VTT (e.g., data/transcripts/final.srt)")
++    ap.add_argument("--lipsyncA", help="external lipsync json for charA (rhubarb format)")
++    ap.add_argument("--lipsyncB", help="external lipsync json for charB (rhubarb format)")
+     args = ap.parse_args()
+@@
+-    if args.stage == "transcribe":
++    # compose -> render エイリアス
++    if args.stage == "compose":
++        args.stage = "render"
++
++    # --input の必須制御：transcribe/tts/all では必須、render では任意
++    if args.stage in ("all","transcribe","tts") and not args.input:
++        ap.error("--input is required for stage 'all', 'transcribe' or 'tts'")
++
++    if args.stage == "transcribe":
+         ...
+@@
+-    elif args.stage == "render":
+-        # 既存のレンダ処理
+-        ...
++    elif args.stage == "render":
++        # ===== 外部アセット優先の合成レンダリング =====
++        cfg = load_config(args.config)  # 既存の設定読み込み関数を想定
++
++        # 1) 音声
++        #    優先順位: --audio → 既存デフォルト (data/tts/mix.wav)
++        audio_path = Path(args.audio) if args.audio else Path("data/tts/mix.wav")
++
++        # 2) 字幕
++        #    優先順位: --sub → --transcript → 既存デフォルト (data/transcripts/final.srt)
++        sub_path = None
++        if getattr(args, "sub", None):
++            sub_path = Path(args.sub)
++        elif getattr(args, "transcript", None):
++            sub_path = Path(args.transcript)
++        else:
++            sub_path = Path("data/transcripts/final.srt")
++
++        # 3) 口パク（rhubarb互換JSON）
++        lipA_path = Path(args.lipsyncA) if getattr(args, "lipsyncA", None) else Path("data/lipsync/charA.json")
++        lipB_path = Path(args.lipsyncB) if getattr(args, "lipsyncB", None) else Path("data/lipsync/charB.json")
++
++        def _load_mouth_cues(p: Path):
++            """Rhubarb形式 {"mouthCues":[{"start":..,"end":..,"value":"A"|"B"|...}]} を読み込む"""
++            if not p.exists():
++                return None
++            data = json.loads(p.read_text(encoding="utf-8"))
++            # key 名は mouthCues / MouthCues のケースがあるので両対応
++            cues = data.get("mouthCues") or data.get("MouthCues")
++            return cues
++
++        external_lipsync = lipA_path.exists() and lipB_path.exists()
++        mouthA = _load_mouth_cues(lipA_path) if external_lipsync else None
++        mouthB = _load_mouth_cues(lipB_path) if external_lipsync else None
++
++        if external_lipsync and mouthA and mouthB:
++            print(f"[INFO] Use external lipsync JSON:\n  A={lipA_path}\n  B={lipB_path}")
++            # 既存のレンダ関数に mouthCues を渡す。関数名はプロジェクトの実装に合わせてください。
++            # 例:
++            # render_video(
++            #     audio=audio_path,
++            #     subtitles=sub_path,
++            #     charA_dir=Path(args.charA),
++            #     charB_dir=Path(args.charB),
++            #     mouth_cues_A=mouthA,
++            #     mouth_cues_B=mouthB,
++            #     out=Path(args.out),
++            #     config=cfg,
++            # )
++            render_with_external_lipsync(
++                audio_path, sub_path,
++                Path(args.charA), Path(args.charB),
++                mouthA, mouthB,
++                Path(args.out), cfg
++            )
++            sys.exit(0)
++        else:
++            print("[INFO] External lipsync not found. Fallback to built-in lipsync generation.")
++            # ▼従来ルート：A/B の音声から rhubarb を叩いて生成する等、
++            #   既存の処理をそのまま呼び出してください。
++            render_builtin(audio_hint=args.input, config=cfg, out=args.out,
++                           charA=args.charA, charB=args.charB, transcript=sub_path, audio_mix=audio_path)
++            sys.exit(0)

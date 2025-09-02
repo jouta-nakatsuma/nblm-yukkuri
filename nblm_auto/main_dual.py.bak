@@ -1,0 +1,78 @@
+
+from __future__ import annotations
+import argparse, json, yaml
+from pathlib import Path
+from .transcription import transcribe_with_whisper_cli
+from .tts_voicevox import voicevox_tts_segments
+from .lipsync_rhubarb import rhubarb_visemes, visemes_to_openclose
+from .render import render_two_chars_dual
+from .utils import split_japanese_sentences
+
+def load_config(p: Path) -> dict:
+    return yaml.safe_load(Path(p).read_text(encoding="utf-8"))
+
+def build_alternate_segments(text: str, cfg: dict) -> list[dict]:
+    sentences = [s for s in split_japanese_sentences(text) if s]
+    A_id = int(cfg["characters"]["charA"]["speaker_id"])
+    B_id = int(cfg["characters"]["charB"]["speaker_id"])
+    start_with = cfg.get("dialogue",{}).get("start_with","A")
+    turn = start_with
+    segs = []
+    for s in sentences:
+        if turn == "A":
+            segs.append({"text": s, "who": "A", "speaker_id": A_id})
+            turn = "B"
+        else:
+            segs.append({"text": s, "who": "B", "speaker_id": B_id})
+            turn = "A"
+    return segs
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", required=True, help="NotebookLM音声ファイル（m4a/mp3/wav）")
+    ap.add_argument("--config", default="config.yml")
+    ap.add_argument("--charA", default="assets/characters/charA")
+    ap.add_argument("--charB", default="assets/characters/charB")
+    ap.add_argument("--out", default="output.mp4")
+    args = ap.parse_args()
+
+    cfg = load_config(Path(args.config))
+    whisper_out = transcribe_with_whisper_cli(Path(args.input), Path("data/transcripts"),
+                                             model=cfg["pipeline"]["model"], language=cfg["pipeline"]["language"])
+
+    data = json.loads(Path(whisper_out["json"]).read_text(encoding="utf-8"))
+    full_text = "".join(seg["text"] for seg in data.get("segments", []))
+
+    if not cfg.get("dialogue",{}).get("enabled", False):
+        print("dialogue.enabled が false のため、この main_dual は何もしません。config.yml を確認してください。")
+        return
+
+    segs = build_alternate_segments(full_text, cfg)
+    mix_wav, A_wav, B_wav, timings = voicevox_tts_segments(
+        segs,
+        engine_url=cfg["voicevox"]["engine_url"],
+        speed_scale=float(cfg["voicevox"]["speed_scale"]),
+        pitch_scale=float(cfg["voicevox"]["pitch_scale"]),
+        intonation_scale=float(cfg["voicevox"]["intonation_scale"]),
+        pause_between_sentences_ms=int(cfg["pipeline"]["pause_between_sentences_ms"]),
+        out_mix_wav=Path("data/tts/narration.wav"),
+        out_A_wav=Path("data/tts/charA.wav"),
+        out_B_wav=Path("data/tts/charB.wav"),
+    )
+    visA = rhubarb_visemes(A_wav, Path("data/visemes/charA.json"))
+    visB = rhubarb_visemes(B_wav, Path("data/visemes/charB.json"))
+    timeline_A = visemes_to_openclose(visA)
+    timeline_B = visemes_to_openclose(visB)
+
+    out = render_two_chars_dual(
+        audio_wav=mix_wav,
+        viseme_timeline_A=timeline_A,
+        viseme_timeline_B=timeline_B,
+        charA_dir=Path(args.charA),
+        charB_dir=Path(args.charB),
+        out_path=Path(args.out),
+    )
+    print("DONE:", out)
+
+if __name__ == "__main__":
+    main()

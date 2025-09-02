@@ -1,0 +1,26 @@
+voicevox:
+  engine_url: http://127.0.0.1:50021
+  narrator_speaker_id: 2
+  speed_scale: 1.0
+  pitch_scale: 0.0
+  intonation_scale: 1.0
+pipeline:
+  model: small
+  language: ja
+  pause_between_sentences_ms: 150
+characters:
+  charA:
+    name: metan
+    speaker_id: 2
+  charB:
+    name: aoyama
+    speaker_id: 13
+dialogue:
+  enabled: true
+  mode: alternate
+  start_with: A
+render:
+  width: 1280    # 1920→1280 へ
+  height: 720
+  fps: 24        # 30→24 でも見た目の差は小、速度は有意に短縮
+
