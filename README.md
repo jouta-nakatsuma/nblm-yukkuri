@@ -1,9 +1,6 @@
 README.md
 =========
 
-````markdown
-# nblm_yukkuri
-
 NotebookLM が生成した **ナレーション音声**をそのまま使い、**Notta の SRT** と **Rhubarb** のリップシンク、**MoviePy** の合成で「ゆっくり風」二人会話動画を作るツール群です。
 
 - 🔉 音声: NotebookLM 出力の音声ファイル（例: `data/tts/mix.wav`）
