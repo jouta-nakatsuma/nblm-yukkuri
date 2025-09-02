@@ -1,10 +1,30 @@
-# Mac
+# macOS
 .DS_Store
+
+# build / generated
+output.mp4
+output*/
+data/visemes/
+data/tmp*/
+
+# large audio/video: 追跡しない or Git LFS を使う
+data/tts/
+*.wav
+*.m4a
+*.mp4
+
+# keep transcripts & lipsync JSON
+!data/transcripts/
+!data/transcripts/**/*.srt
+!data/lipsync/
+!data/lipsync/**/*.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class
+.venv*/
+*.pyc
 
 # C extensions
 *.so
